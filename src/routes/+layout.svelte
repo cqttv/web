@@ -5,7 +5,6 @@
 	let { children } = $props();
 
 	import { type TitleContext } from "$lib/common";
-	import { playerVol, playerMuted, gridCols } from "$lib/stores/live";
 
 	import { browser } from "$app/environment";
 	import { page } from "$app/state";
@@ -33,55 +32,12 @@
 			title = newTitle;
 		},
 	});
-
-	const colsQueue = [6, 5, 4, 3, 2];
-	const cycleGridCols = () => {
-		gridCols.update((current) => {
-			if (current === null) return colsQueue[0];
-			const idx = colsQueue.indexOf(current);
-			if (idx === -1 || idx === colsQueue.length - 1) return null;
-			return colsQueue[idx + 1];
-		});
-	};
-
-	let prevVolume: number = 0.5;
-
-	if (browser) {
-		gridCols.set(parseInt(window.localStorage.getItem("live-grid-cols")!) || null);
-
-		const storedVol = window.localStorage.getItem("player-vol");
-		const storedMuted = window.localStorage.getItem("player-muted");
-		if (storedVol !== null) playerVol.set(parseFloat(storedVol));
-		if (storedMuted !== null) playerMuted.set(storedMuted === "true");
-
-		gridCols.subscribe((v) => {
-			if (v) window.localStorage.setItem("live-grid-cols", v.toString());
-			else window.localStorage.removeItem("live-grid-cols");
-		});
-		playerVol.subscribe((v) => {
-			window.localStorage.setItem("player-vol", v.toString());
-		});
-		playerMuted.subscribe((m) => {
-			window.localStorage.setItem("player-muted", m.toString());
-		});
-	}
-
-	const toggleMute = () => {
-		if ($playerMuted) {
-			playerMuted.set(false);
-			playerVol.set(prevVolume);
-		} else {
-			playerMuted.set(true);
-			playerVol.set(0);
-		}
-	};
 </script>
 
 <svelte:head>
 	{#if title}
 		<title>{title} — Twitch Utilities</title>
 	{/if}
-	<script defer src="https://intel.supa.sh/script.js" data-website-id="a2ca0a43-de0c-42ab-a5e2-43971edbd243" data-exclude-search="true" data-exclude-hash="true"></script>
 </svelte:head>
 
 <ModeWatcher />
@@ -97,44 +53,6 @@
 				<MoonIcon class="absolute rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
 				<span class="sr-only">Toggle theme</span>
 			</Button>
-			{#if page.url.pathname === "/live"}
-				<Button onclick={cycleGridCols} variant="ghost" size="icon" class="size-7">
-					{#if $gridCols === null}
-						<Grid2X2Icon />
-					{:else}
-						<span class="text-base font-[400] tabular-nums">{$gridCols}</span>
-					{/if}
-					<span class="sr-only">Change number of grid columns</span>
-				</Button>
-				<div class="flex gap-0.5">
-					<Button onclick={toggleMute} variant="ghost" size="icon" class="size-7 min-w-7">
-						{#if $playerMuted}
-							<VolumeOffIcon />
-							<span class="sr-only">Unmute streams</span>
-						{:else}
-							{#if $playerVol < 0.5}
-								<Volume1Icon />
-							{:else}
-								<Volume2Icon />
-							{/if}
-							<span class="sr-only">Mute streams</span>
-						{/if}
-					</Button>
-					<Slider
-						type="single"
-						max={1}
-						step={0.01}
-						class="mr-1 min-w-20 opacity-0 transition-opacity group-hover:opacity-100 [&:has([data-active])]:opacity-100 [&>*]:!ring-0 [&>*]:!ring-offset-0"
-						onValueCommit={(v) => {
-							if (v !== 0) prevVolume = v;
-						}}
-						onValueChange={(v) => {
-							playerMuted.set(v === 0);
-						}}
-						bind:value={$playerVol}
-					/>
-				</div>
-			{/if}
 		</div>
 
 		{@render children?.()}
