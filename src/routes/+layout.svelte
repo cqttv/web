@@ -7,15 +7,13 @@
 	import { type TitleContext } from "$lib/common";
 
 	import { browser } from "$app/environment";
-	import { page } from "$app/state";
 	import { setContext } from "svelte";
 
 	import { ModeWatcher, toggleMode } from "mode-watcher";
 
 	import { Button } from "$lib/components/ui/button/index.js";
-	import { Slider } from "$lib/components/ui/slider/index.js";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
-	import { SunIcon, MoonIcon, Grid2X2Icon, Volume1Icon, Volume2Icon, VolumeOffIcon } from "@lucide/svelte";
+	import { SunIcon, MoonIcon } from "@lucide/svelte";
 
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import AppSidebar from "$lib/components/sidebar.svelte";
