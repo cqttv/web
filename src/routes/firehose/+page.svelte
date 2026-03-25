@@ -11,6 +11,7 @@
 	import * as Card from "$lib/components/ui/card/index.js";
 
 	import FocusTrap from "$lib/components/focus-trap.svelte";
+	import SearchFilter from "$lib/components/search-filter.svelte";
 
 	import VirtualList from "svelte-tiny-virtual-list";
 
@@ -19,7 +20,7 @@
 	import Link from "$lib/components/message/link.svelte";
 	import Badge from "$lib/components/message/badge.svelte";
 
-	import { ChevronsDownIcon } from "@lucide/svelte";
+	import { ChevronsDownIcon, SettingsIcon } from "@lucide/svelte";
 
 	import { getContext, onDestroy, onMount, tick, untrack } from "svelte";
 	import { SvelteMap } from "svelte/reactivity";
@@ -30,8 +31,8 @@
 
 	import { timeFormat, type TitleContext } from "$lib/common";
 
-	import type { EmoteProps, BadgeProps, Message, ChatComponents, TMIEmote } from "$lib/twitch/logs";
-	import { messageSearch } from "$lib/twitch/logs";
+	import type { EmoteProps, BadgeProps, Message, ChatComponents, TMIEmote, SearchFilter as SearchFilterType, SearchCriterion } from "$lib/twitch/logs";
+	import { messageSearch, advancedMessageSearch, serializeFilter, deserializeFilter } from "$lib/twitch/logs";
 
 	import * as TwitchServices from "$lib/twitch/services/index.js";
 
@@ -67,9 +68,13 @@
 	// Badges
 	const globalBadges = new SvelteMap<string, BadgeProps>();
 	let badgeUpdates = $state(0);
+	let availableBadges = $state<Array<{ id: string; title: string; imageUrl: string }>>([]);
 
 	let instanceValue = $state("");
 	let searchValue = $state("");
+	let searchFilter = $state<SearchFilterType>({ criteria: [] });
+	let useAdvancedSearch = $state(false);
+	let isFilterOpen = $state(false);
 
 	onMount(() => {
 		fetchGlobalBadges();
@@ -85,6 +90,14 @@
 		}
 
 		searchValue = q.get("s") || "";
+		
+		// Load advanced search filter from URL
+		const filterParam = q.get("f");
+		if (filterParam) {
+			searchFilter = deserializeFilter(filterParam);
+			useAdvancedSearch = true;
+			isFilterOpen = true;
+		}
 	});
 
 	onDestroy(() => {
@@ -95,6 +108,7 @@
 	$effect(() => {
 		const i = instanceValue;
 		const s = searchValue;
+		const f = useAdvancedSearch && searchFilter.criteria.length > 0 ? serializeFilter(searchFilter) : null;
 		untrack(() => {
 			const q = page.url.searchParams;
 
@@ -102,6 +116,9 @@
 
 			if (s) q.set("s", s);
 			else q.delete("s");
+
+			if (f) q.set("f", f);
+			else q.delete("f");
 
 			goto(page.url.search, { replaceState: true, keepFocus: true });
 		});
@@ -149,7 +166,12 @@
 		});
 	});
 
-	let filteredChatLogs = $derived(messageSearch(searchValue, chatLogs, null));
+	let filteredChatLogs = $derived.by(() => {
+		if (useAdvancedSearch && searchFilter.criteria.length > 0) {
+			return advancedMessageSearch(searchFilter, chatLogs, null);
+		}
+		return messageSearch(searchValue, chatLogs, null);
+	});
 
 	const logsAfterScroll = ({ detail }: { detail: { event: Event; offset: number } }) => {
 		const el = detail.event.target as HTMLDivElement;
@@ -194,6 +216,30 @@
 
 		return badges;
 	};
+
+	$effect(() => {
+		// Update available badges list for the filter component
+		badgeUpdates;
+		const badges: Array<{ id: string; title: string; imageUrl: string }> = [];
+		const seenIds = new Set<string>();
+
+		// Add global badges
+		globalBadges.forEach((badge, key) => {
+			const badgeId = key.split("/")[0];
+			if (!seenIds.has(badgeId)) {
+				badges.push({
+					id: badgeId,
+					title: badge.title,
+					imageUrl: badge.url,
+				});
+				seenIds.add(badgeId);
+			}
+		});
+
+		// Sort by title
+		badges.sort((a, b) => a.title.localeCompare(b.title));
+		availableBadges = badges;
+	});
 
 	const fetchGlobalBadges = async () => {
 		const globalBadgesList = await TwitchServices.IVR.getGlobalBadges();
@@ -348,10 +394,42 @@
 				</Select.Root>
 			</div>
 
-			<div class="w-full self-end">
-				<Input id="input-search" maxlength={500} placeholder="Search" class="h-8" bind:ref={searchInput} bind:value={searchValue} />
+			<div class="w-full self-end flex gap-2">
+				{#if !useAdvancedSearch}
+					<Input id="input-search" maxlength={500} placeholder="Search" class="h-8 flex-1" bind:ref={searchInput} bind:value={searchValue} />
+				{/if}
+				<Button 
+					variant="ghost" 
+					size="icon" 
+					class="size-8 border" 
+					onclick={() => {
+						if (!useAdvancedSearch && searchValue.trim()) {
+							const newCriterion: SearchCriterion = {
+								id: '0',
+								type: 'text',
+								value: searchValue.trim(),
+							};
+							searchFilter = { criteria: [newCriterion, ...searchFilter.criteria] };
+							searchValue = '';
+						}
+						useAdvancedSearch = !useAdvancedSearch;
+						if (!useAdvancedSearch) {
+							searchFilter = { criteria: [] };
+						}
+						isFilterOpen = useAdvancedSearch;
+					}}
+					title="Toggle Advanced Search" 
+					aria-label="Toggle Advanced Search" 
+					aria-pressed={useAdvancedSearch}
+				>
+					<SettingsIcon />
+				</Button>
 			</div>
 		</div>
+
+		{#if useAdvancedSearch && isFilterOpen}
+			<SearchFilter filter={searchFilter} {availableBadges} onFilterChange={(filter) => (searchFilter = filter)} />
+		{/if}
 
 		<div class="flex min-h-0 w-full flex-1" bind:clientHeight={logsBoxHeight}>
 			<Card.Root class="h-full w-full flex-col overflow-hidden leading-5">
