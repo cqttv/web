@@ -63,7 +63,6 @@ const searchPrefixes: Record<string, (searchString: string, chatLogs: Message[])
 	regex(searchString, chatLogs) {
 		try {
 			const regex = new RegExp(searchString, "i");
-
 			return chatLogs.filter((msg) => regex.test(msg.text));
 		} catch {
 			return [];
@@ -74,7 +73,6 @@ const searchPrefixes: Record<string, (searchString: string, chatLogs: Message[])
 			.toLowerCase()
 			.split(",")
 			.map((c) => c.trim());
-
 		return chatLogs.filter((msg) => channels.includes(msg.channel?.toLowerCase() ?? ""));
 	},
 	from(searchString, chatLogs) {
@@ -82,99 +80,129 @@ const searchPrefixes: Record<string, (searchString: string, chatLogs: Message[])
 			.toLowerCase()
 			.split(",")
 			.map((u) => u.trim());
-
 		return chatLogs.filter((msg) => users.includes(msg.displayName.toLowerCase()));
 	},
 };
 
 type SearchPrefixKey = keyof typeof searchPrefixes;
 
-// Test a single criterion against a message
-const testCriterion = (criterion: SearchCriterion, msg: Message): boolean => {
-	let result = false;
-
-	switch (criterion.type) {
-		case "regex": {
+/**
+ * Evaluates a single search criterion against a message.
+ * @param criterion The search criterion to evaluate.
+ * @param message The message to test against.
+ * @returns True if the criterion matches, false otherwise.
+ */
+const evaluateCriterion = (criterion: SearchCriterion, message: Message): boolean => {
+	const evaluators: Record<SearchCriterion["type"], (value: string, msg: Message) => boolean> = {
+		regex: (value, msg) => {
 			try {
-				const regex = new RegExp(criterion.value, "i");
-				result = regex.test(msg.text);
+				const regex = new RegExp(value, "i");
+				return regex.test(msg.text);
 			} catch {
-				result = false;
+				return false;
 			}
-			break;
-		}
-		case "text": {
-			result = msg.text.toLowerCase().includes(criterion.value.toLowerCase());
-			break;
-		}
-		case "user": {
-			const users = criterion.value
-				.toLowerCase()
-				.split(",")
-				.map((u) => u.trim());
-			result = users.includes(msg.displayName.toLowerCase());
-			break;
-		}
-		case "channel": {
-			const channels = criterion.value
-				.toLowerCase()
-				.split(",")
-				.map((c) => c.trim());
-			result = channels.includes(msg.channel?.toLowerCase() ?? "");
-			break;
-		}
-		case "badge": {
-			const badges = criterion.value
-				.toLowerCase()
-				.split(",")
-				.map((b) => b.trim());
-			const msgBadges = msg.tags["badges"]?.split(",").map((b) => b.split("/")[0].toLowerCase()) ?? [];
-			result = badges.some((badge) => msgBadges.includes(badge));
-			break;
-		}
-	}
+		},
+		text: (value, msg) => msg.text.toLowerCase().includes(value.toLowerCase()),
+		user: (value, msg) => {
+			const users = value.toLowerCase().split(",").map((u) => u.trim());
+			return users.includes(msg.displayName.toLowerCase());
+		},
+		channel: (value, msg) => {
+			const channels = value.toLowerCase().split(",").map((c) => c.trim());
+			return channels.includes(msg.channel?.toLowerCase() ?? "");
+		},
+		badge: (value, msg) => {
+			const badges = value.toLowerCase().split(",").map((b) => b.trim());
+			const messageBadges = msg.tags["badges"]?.split(",").map((b) => b.split("/")[0].toLowerCase()) ?? [];
+			return badges.some((badge) => messageBadges.includes(badge));
+		},
+	};
 
+	const evaluator = evaluators[criterion.type];
+	if (!evaluator) return false;
+
+	const result = evaluator(criterion.value, message);
 	return criterion.negate ? !result : result;
 };
 
+/**
+ * Groups search criteria into OR groups based on their operators.
+ * Criteria are grouped where consecutive ANDs are in the same group, and OR starts a new group.
+ * @param criteria The list of search criteria.
+ * @returns An array of criterion groups, where each group should be ANDed together, and groups ORed.
+ */
+const groupCriteriaByOr = (criteria: SearchCriterion[]): SearchCriterion[][] => {
+	const groups: SearchCriterion[][] = [];
+	for (const criterion of criteria) {
+		if (groups.length === 0 || criterion.operator === "OR") {
+			groups.push([criterion]);
+		} else {
+			groups[groups.length - 1].push(criterion);
+		}
+	}
+	return groups;
+};
+
+/**
+ * Evaluates whether a message matches the given search filter.
+ * The filter uses AND/OR logic: criteria are grouped by OR operators, with AND within groups.
+ * @param filter The search filter containing criteria.
+ * @param message The message to evaluate.
+ * @returns True if the message matches the filter, false otherwise.
+ */
+const messageMatchesFilter = (filter: SearchFilter, message: Message): boolean => {
+	if (!filter.criteria.length) return true;
+
+	const orGroups = groupCriteriaByOr(filter.criteria);
+
+	// Evaluate each OR group (AND within groups)
+	for (const group of orGroups) {
+		let groupMatches = true;
+		for (const criterion of group) {
+			if (!evaluateCriterion(criterion, message)) {
+				groupMatches = false;
+				break;
+			}
+		}
+		if (groupMatches) return true;
+	}
+
+	return false;
+};
+
+/**
+ * Performs advanced message search using a structured filter.
+ * @param filter The search filter with criteria.
+ * @param chatLogs The array of messages to search.
+ * @param scrollFromBottom Whether to reverse the order for bottom-scrolling.
+ * @returns The filtered array of messages.
+ */
 export const advancedMessageSearch = (filter: SearchFilter, chatLogs: Message[], scrollFromBottom: boolean | null): Message[] => {
-	if (!filter.criteria.length) return scrollFromBottom === false ? [...chatLogs].reverse() : chatLogs;
+	if (!filter.criteria.length) {
+		return scrollFromBottom === false ? [...chatLogs].reverse() : chatLogs;
+	}
 
-	const results = chatLogs.filter((msg) => {
-		// Group criteria by OR operators (AND has higher precedence)
-		const orGroups: SearchCriterion[][] = [];
-		for (const criterion of filter.criteria) {
-			if (orGroups.length === 0 || criterion.operator === "OR") {
-				orGroups.push([criterion]);
-			} else {
-				orGroups[orGroups.length - 1].push(criterion);
-			}
-		}
-
-		// Evaluate each OR group (AND within groups)
-		let result = false;
-		for (const group of orGroups) {
-			let groupResult = true;
-			for (const criterion of group) {
-				const testResult = testCriterion(criterion, msg);
-				groupResult = groupResult && testResult;
-			}
-			result = result || groupResult;
-		}
-
-		return result;
-	});
-
+	const results = chatLogs.filter((msg) => messageMatchesFilter(filter, msg));
 	return scrollFromBottom === false ? [...results].reverse() : results;
 };
 
+/**
+ * Performs basic message search using prefixes or fuzzy search.
+ * @param searchValue The search string.
+ * @param chatLogs The array of messages to search.
+ * @param scrollFromBottom Whether to reverse the order for bottom-scrolling.
+ * @returns The filtered array of messages.
+ */
 export const messageSearch = (searchValue: string, chatLogs: Message[], scrollFromBottom: boolean | null): Message[] => {
 	const searchKey = searchValue.split(":", 1)[0].toLowerCase();
 	const searchString = searchValue.slice(searchKey.length + 1);
+
 	if (searchKey in searchPrefixes && searchString) {
 		chatLogs = searchPrefixes[searchKey as SearchPrefixKey](searchString, chatLogs);
 	} else if (searchValue) {
-		const searchOptions = scrollFromBottom === null ? { keys: ["channel", "displayName", "text"], threshold: 0.5 } : { keys: ["displayName", "text"], threshold: 0.5, limit: 5000 };
+		const searchOptions = scrollFromBottom === null
+			? { keys: ["channel", "displayName", "text"], threshold: 0.5 }
+			: { keys: ["displayName", "text"], threshold: 0.5, limit: 5000 };
 
 		chatLogs = fuzzysort
 			.go(searchValue, chatLogs, searchOptions)
