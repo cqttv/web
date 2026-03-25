@@ -22,6 +22,7 @@
 	import * as Card from "$lib/components/ui/card/index.js";
 
 	import FocusTrap from "$lib/components/focus-trap.svelte";
+	import SearchFilter from "$lib/components/search-filter.svelte";
 
 	import VirtualList from "svelte-tiny-virtual-list";
 
@@ -32,18 +33,18 @@
 	import Reply from "$lib/components/message/reply.svelte";
 
 	import { getContext, onDestroy, onMount, tick, untrack } from "svelte";
-	import { SvelteMap } from "svelte/reactivity";
+	import { SvelteMap, SvelteSet } from "svelte/reactivity";
 
 	import { browser } from "$app/environment";
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 
-	import { LoaderCircleIcon, FileTextIcon, ArrowDownWideNarrowIcon, ArrowUpNarrowWideIcon, CalendarIcon, ExternalLinkIcon, FilterIcon, SearchIcon, ChartColumnIcon } from "@lucide/svelte";
+	import { LoaderCircleIcon, FileTextIcon, ArrowDownWideNarrowIcon, ArrowUpNarrowWideIcon, CalendarIcon, ExternalLinkIcon, FilterIcon, SearchIcon, ChartColumnIcon, SettingsIcon } from "@lucide/svelte";
 
 	import { dateTimeFormat, type TitleContext } from "$lib/common";
 
-	import type { EmoteProps, BadgeProps, Message, ChatComponents, TMIEmote } from "$lib/twitch/logs";
-	import { messageSearch } from "$lib/twitch/logs";
+	import type { EmoteProps, BadgeProps, Message, ChatComponents, TMIEmote, SearchFilter as SearchFilterType, SearchCriterion } from "$lib/twitch/logs";
+	import { messageSearch, advancedMessageSearch, serializeFilter, deserializeFilter } from "$lib/twitch/logs";
 
 	import * as TwitchServices from "$lib/twitch/services/index.js";
 
@@ -187,6 +188,13 @@
 		dateValue = q.get("d") || "";
 		searchValue = q.get("s") || "";
 		isJumpMode = (q.get("sm") || window.localStorage.getItem("logs-search-mode")) === "jump";
+		
+		const filterParam = q.get("f");
+		if (filterParam) {
+			searchFilter = deserializeFilter(filterParam);
+			useAdvancedSearch = true;
+			isFilterOpen = true;
+		}
 	});
 
 	onDestroy(() => {
@@ -204,6 +212,12 @@
 
 	let channelId = $state("");
 
+	// Search filter state
+	let searchFilter = $state<SearchFilterType>({ criteria: [] });
+	let isFilterOpen = $state(false);
+	let useAdvancedSearch = $state(false);
+	let availableBadges = $state<Array<{ id: string; title: string; imageUrl: string }>>([]);
+
 	// Channel Stats
 	let statsPopoverOpen = $state(false);
 	let channelStats = $state<StatsResponse | null>(null);
@@ -220,12 +234,45 @@
 	let badgeUpdates = $state(0);
 
 	$effect(() => {
+		const badges: Array<{ id: string; title: string; imageUrl: string }> = [];
+		const seenIds = new SvelteSet<string>();
+
+		globalBadges.forEach((badge, key) => {
+			const badgeId = key.split("/")[0];
+			if (!seenIds.has(badgeId)) {
+				badges.push({
+					id: badgeId,
+					title: badge.title,
+					imageUrl: badge.url,
+				});
+				seenIds.add(badgeId);
+			}
+		});
+
+		channelBadges.forEach((badge, key) => {
+			const badgeId = key.split("/")[0];
+			if (!seenIds.has(badgeId)) {
+				badges.push({
+					id: badgeId,
+					title: badge.title,
+					imageUrl: badge.url,
+				});
+				seenIds.add(badgeId);
+			}
+		});
+
+		badges.sort((a, b) => a.title.localeCompare(b.title));
+		availableBadges = badges;
+	});
+
+	$effect(() => {
 		const search = {
 			c: channelName,
 			u: userName,
 			d: dateValue,
 			s: searchValue,
 			sm: searchValue && isJumpMode ? "jump" : null,
+			f: useAdvancedSearch && searchFilter.criteria.length > 0 ? serializeFilter(searchFilter) : null,
 		};
 
 		untrack(() => {
@@ -297,15 +344,20 @@
 	let contentRef = $state<HTMLElement | null>(null);
 
 	let searchValue = $state("");
-	let searchResults = $derived(messageSearch(searchValue, chatLogs, scrollFromBottom));
+	let searchResults = $derived.by(() => {
+		if (searchFilter.criteria.length > 0) {
+			return advancedMessageSearch(searchFilter, chatLogs, scrollFromBottom);
+		}
+		return messageSearch(searchValue, chatLogs, scrollFromBottom);
+	});
 	let filteredChatLogs = $derived(isJumpMode ? messageSearch("", chatLogs, scrollFromBottom) : searchResults);
-	let isJumpSearching = $derived(isJumpMode && searchResults.length && searchValue);
+	let isJumpSearching = $derived(isJumpMode && searchResults.length && (searchValue || searchFilter.criteria.length > 0));
 	let jumpHighlights = $derived(isJumpSearching ? new Set(searchResults.map((m) => getMessageId(m))) : void 0);
 	let jumpIndex = $derived(isJumpSearching ? searchResults.findIndex((m) => getMessageId(m) === page.url.hash.slice(1)) : -1);
 	let jumpInputValue = $state(1);
 
 	let displayMessageCount = $derived.by(() => {
-		if (searchValue && !isJumpMode) {
+		if ((searchValue || searchFilter.criteria.length > 0) && !isJumpMode) {
 			return `${searchResults.length.toLocaleString()} / ${chatLogs.length.toLocaleString()}`;
 		}
 		return chatLogs.length.toLocaleString();
@@ -1063,14 +1115,16 @@
 				{/if}
 				{#if chatLogs.length}
 					<div class="order-1 flex flex-1 basis-full gap-1 md:order-none md:basis-auto">
-						<form class="flex-1">
-							<div class="relative flex items-center">
-								<Input id="input-search" maxlength={500} placeholder="Search" class="h-8 pr-20" autocomplete="off" bind:ref={searchInput} bind:value={searchValue} />
-								<span class="pointer-events-none absolute right-2 select-none text-xs tabular-nums text-muted-foreground">
-									{displayMessageCount}
-								</span>
-							</div>
-						</form>
+						{#if !useAdvancedSearch}
+							<form class="flex-1">
+								<div class="relative flex items-center">
+									<Input id="input-search" maxlength={500} placeholder="Search" class="h-8 pr-20" autocomplete="off" bind:ref={searchInput} bind:value={searchValue} />
+									<span class="pointer-events-none absolute right-2 select-none text-xs tabular-nums text-muted-foreground">
+										{displayMessageCount}
+									</span>
+								</div>
+							</form>
+						{/if}
 						{#if isJumpSearching}
 							{@const width = searchResults.length.toString().length + 5}
 							<div class="flex items-center gap-1">
@@ -1081,11 +1135,37 @@
 						{/if}
 					</div>
 					<div class="ml-auto flex gap-1">
+						<Button 
+							variant="ghost" 
+							size="icon" 
+							class="size-8 border" 
+							onclick={() => {
+								if (!useAdvancedSearch && searchValue.trim()) {
+									const newCriterion: SearchCriterion = {
+										id: '0',
+										type: 'text',
+										value: searchValue.trim(),
+									};
+									searchFilter = { criteria: [newCriterion, ...searchFilter.criteria] };
+									searchValue = '';
+								}
+								useAdvancedSearch = !useAdvancedSearch;
+								if (!useAdvancedSearch) {
+									searchFilter = { criteria: [] };
+								}
+								isFilterOpen = useAdvancedSearch;
+							}}
+							title="Toggle Advanced Search" 
+							aria-label="Toggle Advanced Search" 
+							aria-pressed={useAdvancedSearch}
+						>
+							<SettingsIcon />
+						</Button>
 						<Button variant="ghost" size="icon" class="size-8 border" onclick={searchModeToggle} title="Toggle Search Mode" aria-label="Toggle Search Mode" aria-pressed={isJumpMode}>
 							{#if !isJumpMode}
-								<FilterIcon />
-							{:else}
 								<SearchIcon />
+							{:else}
+								<FilterIcon />
 							{/if}
 						</Button>
 						<Button variant="ghost" size="icon" class="size-8 border" onclick={scrollFromBottomToggle}>
@@ -1109,6 +1189,10 @@
 			{/if}
 		</div>
 	</div>
+
+	{#if useAdvancedSearch && isFilterOpen && chatLogs.length}
+		<SearchFilter filter={searchFilter} {availableBadges} onFilterChange={(filter) => (searchFilter = filter)} />
+	{/if}
 
 	{#if error}
 		<p class="text-red-500">{error}</p>
