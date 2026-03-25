@@ -23,7 +23,7 @@
 	import { ChevronsDownIcon, SettingsIcon } from "@lucide/svelte";
 
 	import { getContext, onDestroy, onMount, tick, untrack } from "svelte";
-	import { SvelteMap } from "svelte/reactivity";
+	import { SvelteMap, SvelteSet } from "svelte/reactivity";
 
 	import { browser } from "$app/environment";
 	import { goto } from "$app/navigation";
@@ -219,9 +219,8 @@
 
 	$effect(() => {
 		// Update available badges list for the filter component
-		badgeUpdates;
 		const badges: Array<{ id: string; title: string; imageUrl: string }> = [];
-		const seenIds = new Set<string>();
+		const seenIds = new SvelteSet<string>();
 
 		// Add global badges
 		globalBadges.forEach((badge, key) => {
