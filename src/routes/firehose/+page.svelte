@@ -91,7 +91,6 @@
 
 		searchValue = q.get("s") || "";
 		
-		// Load advanced search filter from URL
 		const filterParam = q.get("f");
 		if (filterParam) {
 			searchFilter = deserializeFilter(filterParam);

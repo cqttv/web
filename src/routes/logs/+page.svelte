@@ -189,7 +189,6 @@
 		searchValue = q.get("s") || "";
 		isJumpMode = (q.get("sm") || window.localStorage.getItem("logs-search-mode")) === "jump";
 		
-		// Load advanced search filter from URL
 		const filterParam = q.get("f");
 		if (filterParam) {
 			searchFilter = deserializeFilter(filterParam);

@@ -47,7 +47,6 @@
 
 	const removeCriterion = (id: string) => {
 		criteria = criteria.filter((c) => c.id !== id);
-		// Update operators
 		if (criteria.length > 0) {
 			criteria[0].operator = undefined; // First criterion doesn't have an operator
 		}
@@ -68,7 +67,6 @@
 			criteria[index] = {
 				...criteria[index],
 				type,
-				// Don't reset value when changing type
 			};
 			emitChange();
 		}

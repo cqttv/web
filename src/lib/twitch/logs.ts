@@ -37,20 +37,18 @@ export type SearchCriterion = {
 	id: string;
 	type: "regex" | "text" | "user" | "channel" | "badge";
 	value: string;
-	operator?: "AND" | "OR"; // operator before this criterion
-	negate?: boolean; // for NOT logic
+	operator?: "AND" | "OR";
+	negate?: boolean;
 };
 
 export type SearchFilter = {
 	criteria: SearchCriterion[];
 };
 
-// Serialize filter to URL-safe string
 export const serializeFilter = (filter: SearchFilter): string => {
 	return btoa(JSON.stringify(filter));
 };
 
-// Deserialize filter from URL-safe string
 export const deserializeFilter = (encoded: string): SearchFilter => {
 	try {
 		return JSON.parse(atob(encoded));
@@ -63,6 +61,7 @@ const searchPrefixes: Record<string, (searchString: string, chatLogs: Message[])
 	regex(searchString, chatLogs) {
 		try {
 			const regex = new RegExp(searchString, "i");
+
 			return chatLogs.filter((msg) => regex.test(msg.text));
 		} catch {
 			return [];
@@ -73,6 +72,7 @@ const searchPrefixes: Record<string, (searchString: string, chatLogs: Message[])
 			.toLowerCase()
 			.split(",")
 			.map((c) => c.trim());
+
 		return chatLogs.filter((msg) => channels.includes(msg.channel?.toLowerCase() ?? ""));
 	},
 	from(searchString, chatLogs) {
@@ -80,6 +80,7 @@ const searchPrefixes: Record<string, (searchString: string, chatLogs: Message[])
 			.toLowerCase()
 			.split(",")
 			.map((u) => u.trim());
+
 		return chatLogs.filter((msg) => users.includes(msg.displayName.toLowerCase()));
 	},
 };
