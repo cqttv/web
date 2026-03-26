@@ -235,11 +235,9 @@
 	let badgeUpdates = $state(0);
 
 	$effect(() => {
-		// Update available badges list for the filter component
 		const badges: Array<{ id: string; title: string; imageUrl: string }> = [];
 		const seenIds = new SvelteSet<string>();
 
-		// Add global badges first
 		globalBadges.forEach((badge, key) => {
 			const badgeId = key.split("/")[0];
 			if (!seenIds.has(badgeId)) {
@@ -252,7 +250,6 @@
 			}
 		});
 
-		// Then add channel-specific badges
 		channelBadges.forEach((badge, key) => {
 			const badgeId = key.split("/")[0];
 			if (!seenIds.has(badgeId)) {
@@ -265,7 +262,6 @@
 			}
 		});
 
-		// Sort by title
 		badges.sort((a, b) => a.title.localeCompare(b.title));
 		availableBadges = badges;
 	});
